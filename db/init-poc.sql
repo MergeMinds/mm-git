@@ -13,6 +13,6 @@ CREATE TABLE acl (
 
 CREATE TABLE auth (
     key_fingerprint bytea NOT NULL,
-    user_id INT NOT NULL,
-)
+    user_id INT NOT NULL
+);
 
