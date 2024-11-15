@@ -1,7 +1,9 @@
 use crate::context;
+use crate::models;
 
 use clap::{Parser, Subcommand};
 use git2::Repository;
+use std::fs;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -69,7 +71,27 @@ impl RepoManager {
     }
 }
 
-pub fn shell(ctx: context::Context) {
+fn get_fingerprint(key: &str) -> Vec<u8> {
+    let key = ssh_key::PublicKey::from_openssh(key).unwrap();
+    let fingerprint =
+        ssh_key::Fingerprint::new(ssh_key::HashAlg::Sha256, key.key_data());
+    fingerprint.sha256().unwrap().to_vec()
+}
+
+fn get_requester_fingerprint() -> Vec<u8> {
+    let auth_file = PathBuf::from(std::env::var("SSH_USER_AUTH").unwrap());
+    let auth_data = fs::read_to_string(auth_file).unwrap();
+    let (_, key_data) = auth_data
+        .split('\n')
+        .find_map(|s| {
+            s.split_once(' ')
+                .take_if(|(line_type, _)| *line_type == "publickey")
+        })
+        .unwrap();
+    get_fingerprint(key_data)
+}
+
+pub async fn shell(ctx: context::Context) {
     let program_name = std::env::args().next().unwrap();
     let cmdline = match ShellCli::try_parse() {
         Ok(shellcli) => {
@@ -92,7 +114,6 @@ pub fn shell(ctx: context::Context) {
 
     match cli.command {
         Commands::External(opts) => {
-            // TODO(guschin): check acl before accepting
             if !["git-receive-pack", "git-upload-pack", "git-upload-archive"]
                 .contains(&opts[0].as_str())
             {
@@ -101,6 +122,37 @@ pub fn shell(ctx: context::Context) {
             }
 
             let args = opts[1..].iter().map(|s| s.trim_matches(['\'', '"']));
+            let fingerprint = get_requester_fingerprint();
+
+            let user = sqlx::query_as!(
+                models::SshAuth,
+                "SELECT * FROM auth WHERE key_fingerprint = $1",
+                fingerprint
+            )
+            .fetch_one(&ctx.db)
+            .await
+            .expect("unknown public key");
+
+            // TODO(guschin): this should be returned from backend
+            let repo_name = args.clone().next().unwrap();
+            let repo_id = if repo_name == "repos/test.git" {
+                [10, 20, 30]
+            } else {
+                [20, 30, 10]
+            };
+
+            log::info!("{}", repo_name);
+            log::info!("{:?}", repo_id);
+
+            sqlx::query!(
+                "SELECT user_id FROM acl WHERE user_id = $1 AND repo_id = $2",
+                user.user_id,
+                &repo_id
+            )
+            .fetch_one(&ctx.db)
+            .await
+            .expect("user doesn't have access rights to this repo");
+
             Command::new(opts[0].clone()).args(args).exec();
         }
     }
