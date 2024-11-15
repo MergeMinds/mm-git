@@ -9,13 +9,19 @@ use actix_web::{
 #[post("/repo/{repo_id}")]
 async fn create_repo(ctx: Data<Context>, req: HttpRequest) -> HttpResponse {
     let repo_id = req.match_info().get("repo_id").unwrap();
-    HttpResponse::Created().finish()
+    ctx.repo_manager.init_repo(repo_id).map_or_else(
+        |_e| HttpResponse::Forbidden().finish(),
+        |_| HttpResponse::Created().finish(),
+    )
 }
 
 #[delete("/repo/{repo_id}")]
 async fn delete_repo(ctx: Data<Context>, req: HttpRequest) -> HttpResponse {
     let repo_id = req.match_info().get("repo_id").unwrap();
-    HttpResponse::Created().finish()
+    ctx.repo_manager.remove_repo(repo_id).map_or_else(
+        |_e| HttpResponse::NotFound().finish(), // TODO(guschin): handle errors
+        |_| HttpResponse::Created().finish(),
+    )
 }
 
 #[put("/acl")]
@@ -33,8 +39,7 @@ async fn update_acl(
     .fetch_optional(&ctx.db)
     .await
     .map_or_else(
-        // TODO(guschin): error could be not "not found", so this should be handled
-        |_| HttpResponse::Ok().finish(),
+        |_e| HttpResponse::Ok().finish(), // TODO(guschin): handle errors
         |_| HttpResponse::Created().finish(),
     )
 }
@@ -52,8 +57,7 @@ async fn remove_acl(
     .execute(&ctx.db)
     .await
     .map_or_else(
-        // TODO(guschin): error could be not "not found", so this should be handled
-        |_| HttpResponse::NotFound().finish(),
+        |_e| HttpResponse::NotFound().finish(), // TODO(guschin): handle errors
         |_| HttpResponse::Ok().finish(),
     )
 }
@@ -72,8 +76,7 @@ async fn add_ssh_key(
     .fetch_optional(&ctx.db)
     .await
     .map_or_else(
-        // TODO(guschin): error could be not "not found", so this should be handled
-        |_| HttpResponse::Created().finish(),
+        |_e| HttpResponse::Created().finish(), // TODO(guschin): handle errors
         |_| HttpResponse::Forbidden().finish(),
     )
 }
@@ -91,8 +94,7 @@ async fn delete_ssh_key(
     .execute(&ctx.db)
     .await
     .map_or_else(
-        // TODO(guschin): error could be not "not found", so this should be handled
-        |_| HttpResponse::Forbidden().finish(),
+        |_e| HttpResponse::Forbidden().finish(), // TODO(guschin): handle errors
         |_| HttpResponse::Ok().finish(),
     )
 }
